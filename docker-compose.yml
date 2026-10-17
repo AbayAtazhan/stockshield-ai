@@ -1,0 +1,78 @@
+# =============================================================================
+# StockShield AI - Multi-Container Docker Compose Stack
+# AMD Developer Hackathon MVP - AMD Instinct MI300X ROCm Deployment
+# =============================================================================
+version: "3.8"
+
+services:
+  # ---------------------------------------------------------------------------
+  # Service 1: Local vLLM Inference Server on AMD Instinct MI300X (ROCm 6.2+)
+  # ---------------------------------------------------------------------------
+  rocm-vllm-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile.rocm
+    image: stockshield/rocm-vllm:latest
+    container_name: stockshield-rocm-vllm
+    restart: unless-stopped
+    command: ["vllm"]
+    environment:
+      - HIP_VISIBLE_DEVICES=0
+      - HSA_OVERRIDE_GFX_VERSION=9.4.2
+      - MODEL_ID=google/gemma-2-27b-it
+      - VLLM_PORT=8000
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+      - HF_HUB_ENABLE_HF_TRANSFER=1
+    ports:
+      - "8000:8000"
+    # Mount AMD ROCm kernel devices for hardware direct memory access
+    devices:
+      - "/dev/kfd:/dev/kfd"
+      - "/dev/dri:/dev/dri"
+    security_opt:
+      - seccomp:unconfined
+    group_add:
+      - video
+      - render
+    ipc: host
+    shm_size: "16gb"
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/v1/models || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    networks:
+      - stockshield-net
+
+  # ---------------------------------------------------------------------------
+  # Service 2: StockShield AI Streamlit Enterprise Command Center
+  # ---------------------------------------------------------------------------
+  stockshield-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.rocm
+    image: stockshield/ui:latest
+    container_name: stockshield-command-center
+    restart: unless-stopped
+    command: ["app"]
+    environment:
+      - LLM_BASE_URL=http://rocm-vllm-engine:8000/v1
+      - LLM_MODEL=google/gemma-2-27b-it
+      - FIREWORKS_API_KEY=${FIREWORKS_API_KEY:-}
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_SERVER_HEADLESS=true
+    ports:
+      - "8501:8501"
+    depends_on:
+      rocm-vllm-engine:
+        condition: service_started
+    networks:
+      - stockshield-net
+
+networks:
+  stockshield-net:
+    driver: bridge

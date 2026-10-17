@@ -1,0 +1,114 @@
+# =============================================================================
+# StockShield AI - AMD Instinct MI300X ROCm Production Dockerfile
+# AMD Developer Hackathon MVP - Retail & Customer Intelligence Track
+# =============================================================================
+# Base: Official ROCm vLLM runtime container optimized for AMD Instinct MI300X (GFX942)
+FROM rocm/vllm:rocm6.2_mi300_ubuntu22.04_py3.10
+
+LABEL maintainer="StockShield AI Engineering Team"
+LABEL description="AMD ROCm vLLM + Streamlit Enterprise Retail Intelligence Command Center"
+LABEL hardware.target="AMD Instinct MI300X (GFX942)"
+
+# ROCm Environment Variables for AMD Instinct MI300X
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    ROCM_HOME=/opt/rocm \
+    HIP_VISIBLE_DEVICES=0 \
+    HSA_OVERRIDE_GFX_VERSION=9.4.2 \
+    VLLM_USE_ROCM=1 \
+    VLLM_ROCM_TENSOR_PARALLEL=1 \
+    HF_HUB_ENABLE_HF_TRANSFER=1 \
+    STREAMLIT_SERVER_PORT=8501 \
+    STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
+    STREAMLIT_SERVER_HEADLESS=true
+
+# Set working directory
+WORKDIR /app
+
+# Install system utilities and build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    wget \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install Python dependencies
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy StockShield application source files
+COPY data_generator.py /app/data_generator.py
+COPY ml_engine.py /app/ml_engine.py
+COPY ai_agent.py /app/ai_agent.py
+COPY app.py /app/app.py
+COPY test_stockshield.py /app/test_stockshield.py
+
+# Create entrypoint script for dual execution (Streamlit UI or vLLM server)
+RUN cat <<'EOF' > /app/entrypoint.sh
+#!/bin/bash
+set -e
+
+echo "============================================================================="
+echo "  🛡️  STOCKSHIELD AI - AMD INSTINCT MI300X ACCELERATION CONTAINER"
+echo "  Hardware Target: AMD Instinct MI300X (GFX942) | ROCm 6.2+"
+echo "============================================================================="
+
+# Detect execution target mode
+MODE="${1:-app}"
+
+if [ "$MODE" = "vllm" ]; then
+    echo "[ROCm] Launching OpenAI-compatible vLLM Server on AMD GPU 0..."
+    MODEL_ID="${MODEL_ID:-google/gemma-2-27b-it}"
+    PORT="${VLLM_PORT:-8000}"
+    
+    exec python3 -m vllm.entrypoints.openai.api_server \
+        --model "$MODEL_ID" \
+        --host 0.0.0.0 \
+        --port "$PORT" \
+        --tensor-parallel-size 1 \
+        --gpu-memory-utilization 0.90 \
+        --max-model-len 4096 \
+        --dtype bfloat16 \
+        --trust-remote-code
+
+elif [ "$MODE" = "test" ]; then
+    echo "[Test] Executing StockShield automated test suite..."
+    exec python3 test_stockshield.py
+
+elif [ "$MODE" = "all" ]; then
+    echo "[Hybrid] Launching background vLLM server + foreground Streamlit Command Center..."
+    MODEL_ID="${MODEL_ID:-google/gemma-2-27b-it}"
+    
+    python3 -m vllm.entrypoints.openai.api_server \
+        --model "$MODEL_ID" \
+        --host 127.0.0.1 \
+        --port 8000 \
+        --tensor-parallel-size 1 \
+        --gpu-memory-utilization 0.85 \
+        --max-model-len 4096 \
+        --dtype bfloat16 \
+        --trust-remote-code &
+        
+    echo "[Hybrid] Waiting for local vLLM endpoint to warm up..."
+    sleep 15
+    
+    export LLM_BASE_URL="http://127.0.0.1:8000/v1"
+    export LLM_MODEL="$MODEL_ID"
+    exec streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true
+
+else
+    echo "[UI] Launching StockShield AI Streamlit Command Center on Port 8501..."
+    exec streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true
+fi
+EOF
+
+RUN chmod +x /app/entrypoint.sh
+
+# Expose ports: 8501 (Streamlit Command Center), 8000 (vLLM OpenAI REST API)
+EXPOSE 8501 8000
+
+# Default entrypoint
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["app"]
