@@ -9,6 +9,20 @@
 
 > **Autonomous Retail Supply Chain Guardrails powered by AMD Instinct™ MI300X, Scikit-Learn Mathematical Forecasting, and Google Gemma 2.**
 
+> 🚀 **Live Interactive Demo**: **[stockshield-ai.streamlit.app](https://stockshield-ai.streamlit.app)**
+
+---
+
+## 📸 Executive Command Center Preview
+
+| 📊 Supply Chain Risk Matrix & Demand Velocity | 🎯 14-Day HistGradientBoosting Forecast |
+| :---: | :---: |
+| ![StockShield AI Risk Matrix](assets/dashboard_overview.png) | ![ML Forecasting Deep-Dive](assets/forecast_deepdive.png) |
+
+| 🛡️ Automated Quality Gate (98/100 Points) | 🤖 Autonomous Procurement Action Agent |
+| :---: | :---: |
+| ![Vibe Marketing Quality Gate](assets/quality_gate_marketing.png) | ![Autonomous Action Playbook](assets/autonomous_action_playbook.png) |
+
 ---
 
 ## 📌 1. The \$1.7 Trillion Retail Problem

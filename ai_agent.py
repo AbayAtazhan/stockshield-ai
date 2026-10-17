@@ -326,9 +326,9 @@ class StockShieldAIAgent:
         models_to_try = [
             self.primary_model,
             self.fallback_model,
+            "accounts/fireworks/models/deepseek-v4p1-flash",
             "accounts/fireworks/models/llama-v3p3-70b-instruct",
             "accounts/fireworks/models/qwen2p5-72b-instruct",
-            "accounts/fireworks/models/deepseek-v4p1-flash",
             "accounts/fireworks/models/gpt-oss-120b",
             "auto",
         ]
@@ -352,7 +352,9 @@ class StockShieldAIAgent:
                 latency_ms = (time.perf_counter() - start_t) * 1000.0
 
                 msg = response.choices[0].message
-                text = msg.content or getattr(msg, "reasoning_content", "") or ""
+                content_text = (msg.content or "").strip()
+                reasoning_text = (getattr(msg, "reasoning_content", "") or "").strip()
+                text = content_text if content_text else reasoning_text
                 p_tokens = response.usage.prompt_tokens if response.usage else len(user_prompt) // 4
                 c_tokens = response.usage.completion_tokens if response.usage else len(text) // 4
 
@@ -428,7 +430,7 @@ class StockShieldAIAgent:
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.2,
-            max_tokens=1000
+            max_tokens=2500
         )
 
         # Fallback simulation if offline
@@ -545,7 +547,7 @@ class StockShieldAIAgent:
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.2,
-            max_tokens=850
+            max_tokens=2500
         )
 
         # Fallback simulation if offline
@@ -697,7 +699,7 @@ class StockShieldAIAgent:
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.3,
-            max_tokens=700
+            max_tokens=2500
         )
 
         # Fallback simulation if offline or parse error
