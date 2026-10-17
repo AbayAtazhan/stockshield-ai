@@ -261,6 +261,12 @@ backend_option = st.sidebar.radio(
 
 # Endpoint & Credentials Setup
 api_key_default = os.getenv("FIREWORKS_API_KEY", "")
+if not api_key_default:
+    try:
+        api_key_default = st.secrets.get("FIREWORKS_API_KEY", "")
+    except Exception:
+        api_key_default = ""
+
 custom_url_default = os.getenv("LLM_BASE_URL", "http://localhost:8000/v1")
 
 if "Custom" in backend_option:
@@ -285,32 +291,44 @@ model_choice = st.sidebar.selectbox(
     help="Default recommended model: Google Gemma 2 27B optimized on AMD Instinct MI300X.",
 )
 
-# Sync AIAgent state when configuration changes
-if st.sidebar.button("🔌 Reconnect / Update AI Agent", use_container_width=True):
+# Automatically synchronize AI Agent state whenever endpoint, key, or model changes
+current_key = api_key_input.strip() if api_key_input and api_key_input.strip() else None
+current_agent = st.session_state.get("ai_agent")
+if (
+    current_agent is None
+    or current_agent.api_key != current_key
+    or current_agent.base_url != endpoint_url
+    or current_agent.primary_model != model_choice
+):
     st.session_state.ai_agent = StockShieldAIAgent(
-        api_key=api_key_input if api_key_input else None,
+        api_key=current_key,
         base_url=endpoint_url,
         primary_model=model_choice,
     )
-    st.sidebar.success("AI Agent configured successfully!")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📁 Dataset Operations")
 
 col_sb1, col_sb2 = st.sidebar.columns(2)
-with col_sb1:
-    if st.button("🔄 Reload Demo", use_container_width=True):
-        df_hist, df_snap = generate_retail_dataset(num_skus=25, days=90, random_seed=42)
-        st.session_state.df_historical = df_hist
-        st.session_state.df_snapshot = df_snap
-        st.session_state.df_analysis = st.session_state.ml_engine.run_full_pipeline(df_hist, df_snap)
-        st.session_state.executive_brief = None
-        st.session_state.po_email_cache = {}
-        st.session_state.marketing_cache = {}
-        st.rerun()
-
 with col_sb2:
-    sku_count_select = st.selectbox("SKU Catalog", options=[15, 20, 25], index=2)
+    current_catalog = st.session_state.get("catalog_size", 25)
+    catalog_index = [15, 20, 25].index(current_catalog) if current_catalog in [15, 20, 25] else 2
+    sku_count_select = st.selectbox("SKU Catalog", options=[15, 20, 25], index=catalog_index)
+
+with col_sb1:
+    reload_demo = st.button("🔄 Reload Demo", use_container_width=True)
+
+# Reactive dataset regeneration if SKU catalog size changes or reload button is clicked
+if reload_demo or (sku_count_select != st.session_state.get("catalog_size", 25)):
+    st.session_state.catalog_size = sku_count_select
+    df_hist, df_snap = generate_retail_dataset(num_skus=sku_count_select, days=90, random_seed=42)
+    st.session_state.df_historical = df_hist
+    st.session_state.df_snapshot = df_snap
+    st.session_state.df_analysis = st.session_state.ml_engine.run_full_pipeline(df_hist, df_snap)
+    st.session_state.executive_brief = None
+    st.session_state.po_email_cache = {}
+    st.session_state.marketing_cache = {}
+    st.rerun()
 
 uploaded_file = st.sidebar.file_uploader("Upload Snapshot CSV (Optional)", type=["csv"])
 if uploaded_file is not None:
@@ -470,6 +488,16 @@ with tab1:
         "The critical danger quadrant highlights items where inventory runs out before new supplier shipments arrive."
     )
 
+    zoom_col1, zoom_col2 = st.columns([1, 1])
+    with zoom_col1:
+        zoom_mode = st.radio(
+            "Scatter Horizon View:",
+            options=["Zoom to Operational Window (0-35 Days)", "Full Horizon (Include Overstock)"],
+            index=0,
+            horizontal=True,
+            help="Select Operational Window to inspect lead-time stockout danger, or Full Horizon to see multi-year overstock SKUs.",
+        )
+
     # 1. Interactive Plotly Scatter Matrix
     fig_scatter = go.Figure()
 
@@ -546,15 +574,25 @@ with tab1:
         )
     )
 
+    if zoom_mode == "Zoom to Operational Window (0-35 Days)":
+        xaxis_settings = dict(
+            title="Days Until Complete Stockout (current_stock / predicted_burn_rate)",
+            gridcolor="#1e293b",
+            range=[-1, 35],
+        )
+    else:
+        max_d = float(df_analysis["days_until_stockout"].max()) if not df_analysis.empty else 100.0
+        xaxis_settings = dict(
+            title="Days Until Complete Stockout (Full Horizon, Days)",
+            gridcolor="#1e293b",
+            range=[-20, max_d * 1.08],
+        )
+
     fig_scatter.update_layout(
         template="plotly_dark",
         height=450,
         margin=dict(l=40, r=40, t=30, b=40),
-        xaxis=dict(
-            title="Days Until Complete Stockout (current_stock / predicted_burn_rate)",
-            gridcolor="#1e293b",
-            range=[-1, 35],  # Zoom in on operational window
-        ),
+        xaxis=xaxis_settings,
         yaxis=dict(
             title="Supplier Replenishment Lead Time (Days)",
             gridcolor="#1e293b",
@@ -932,15 +970,16 @@ with tab3:
 
             btn_campaign = st.button("✨ Generate Flash Campaign & Run Quality Gate", use_container_width=True, type="primary")
 
-            if btn_campaign or selected_overstock_sku not in st.session_state.marketing_cache:
+            cache_key = f"{selected_overstock_sku}_{discount_slider}"
+            if btn_campaign or cache_key not in st.session_state.marketing_cache:
                 with st.spinner("Synthesizing creative vibe copy & running automated Quality Gate Check..."):
                     camp_res = st.session_state.ai_agent.generate_vibe_marketing_campaign(
                         sku_row=ov_row,
                         discount_pct=float(discount_slider)
                     )
-                    st.session_state.marketing_cache[selected_overstock_sku] = camp_res
+                    st.session_state.marketing_cache[cache_key] = camp_res
 
-            campaign: MarketingCampaignResult = st.session_state.marketing_cache[selected_overstock_sku]
+            campaign: MarketingCampaignResult = st.session_state.marketing_cache[cache_key]
         else:
             st.info("No overstock items detected in the dataset.")
             campaign = None

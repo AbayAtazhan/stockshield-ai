@@ -125,7 +125,7 @@ StockShield AI features a **graceful offline fallback mode** that generates real
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-org/stockshield-ai.git
+git clone https://github.com/AbayAtazhan/stockshield-ai.git
 cd stockshield-ai
 
 # 2. Create and activate a Python virtual environment (Python 3.9+)
@@ -192,7 +192,7 @@ docker run --rm stockshield-rocm:latest test
 
 ## 🧪 6. Automated Test Suite & Verification
 
-The included automated test suite [`test_stockshield.py`](file:///Users/abayatazhan/Documents/Проект по умолчанию/test_stockshield.py) rigorously validates:
+The included automated test suite [`test_stockshield.py`](test_stockshield.py) rigorously validates:
 1. **Data Dimensions & Archetypes**: 25 SKUs across 90 days ($2,250$ records), confirming presence of $\ge 4$ High Stockout Risk items, $\ge 3$ Overstock items, and $\ge 2$ High Return Anomalies.
 2. **Scikit-Learn Forecaster**: Verifies `HistGradientBoostingRegressor` achieves $R^2 > 0.90$ with non-negative forward predictions.
 3. **IsolationForest Anomaly Detector**: Confirms $100\%$ detection of hardware thermal throttling and firmware defect batches.

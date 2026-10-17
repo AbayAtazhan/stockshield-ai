@@ -326,6 +326,8 @@ class StockShieldAIAgent:
         models_to_try = [
             self.primary_model,
             self.fallback_model,
+            "accounts/fireworks/models/llama-v3p3-70b-instruct",
+            "accounts/fireworks/models/qwen2p5-72b-instruct",
             "accounts/fireworks/models/deepseek-v4p1-flash",
             "accounts/fireworks/models/gpt-oss-120b",
             "auto",
@@ -649,11 +651,29 @@ class StockShieldAIAgent:
         projected_margin_usd = round(discounted_price - unit_cost, 2)
         is_margin_safe = projected_margin_usd > 0.0
 
-        # Quality scoring breakdown:
+        # Quality scoring breakdown: dynamically computed based on SKU attributes and discount depth
         margin_score = 25 if is_margin_safe else 5
-        clarity_score = 24
-        brand_score = 23
-        compliance_score = 24
+
+        # Clarity: optimal consumer comprehension in standard promotional discount bands (15% - 35%)
+        if 15.0 <= discount_pct <= 35.0:
+            clarity_score = 25
+        elif discount_pct < 15.0:
+            clarity_score = 22
+        else:
+            clarity_score = 23
+
+        # Brand Tone: evaluated against sentiment and discount depth to avoid brand dilution
+        sentiment = float(row.get("customer_sentiment_score", 3.5))
+        brand_penalty = 2 if discount_pct > 40.0 else (1 if discount_pct > 30.0 else 0)
+        sentiment_bonus = 2 if sentiment >= 4.0 else (1 if sentiment >= 3.0 else 0)
+        brand_score = int(np.clip(23 + sentiment_bonus - brand_penalty, 21, 25))
+
+        # Compliance: regulatory pricing disclosure & warehouse inventory volume justification
+        margin_pct_after_discount = (projected_margin_usd / max(discounted_price, 0.01)) * 100.0
+        stock_bonus = 1 if current_stock >= 500 else 0
+        margin_bonus = 1 if margin_pct_after_discount >= 15.0 else 0
+        compliance_score = int(np.clip(22 + stock_bonus + margin_bonus, 21, 25))
+
         total_quality_score = margin_score + clarity_score + brand_score + compliance_score
         passed_quality = total_quality_score >= 75 and is_margin_safe
 
